@@ -63,11 +63,9 @@ def generic_scrap(target_url, css_selector):
             
     print(json.dumps(results, ensure_ascii=False))
 
-def main():
+if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print(json.dumps({"error": "Usage: popcorn-scrap <URL> <CSS_SELECTOR>"}, ensure_ascii=False))
+        print(json.dumps({"error": "Usage: python scrap-url.py <URL> <CSS_SELECTOR>"}, ensure_ascii=False))
         sys.exit(1)
         
-    url_input = sys.argv[1]
-    selector_input = sys.argv[2]
-    generic_scrap(url_input, selector_input)
+    generic_scrap(sys.argv[1], sys.argv[2])
