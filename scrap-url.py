@@ -12,6 +12,16 @@ app = FastAPI(title="Movie Keeper Scraper API")
 def clean_extracted_url(raw_url):
     if not raw_url:
         return ""
+    
+    if "r.search.yahoo.com" in raw_url:
+        try:
+            # Cherche après /RU= ou ?RU= jusqu'au prochain / ou & ou fin de chaîne
+            match = re.search(r'(?:[/?&])RU=([^/&]+)', raw_url)
+            if match:
+                return urllib.parse.unquote(match.group(1))
+        except Exception:
+            pass
+
     if "uddg=" in raw_url:
         try:
             match = re.search(r'[?&]uddg=([^&]+)', raw_url)
@@ -19,6 +29,7 @@ def clean_extracted_url(raw_url):
                 return urllib.parse.unquote(match.group(1))
         except Exception:
             pass
+
     if "/ck/a?!" in raw_url:
         try:
             match = re.search(r'[?&]u=([^&]+)', raw_url)
@@ -33,8 +44,10 @@ def clean_extracted_url(raw_url):
                 return decoded_bytes.decode('utf-8')
         except Exception:
             pass
+
     if raw_url.startswith("//"):
         return f"https:{raw_url}"
+    
     return raw_url
 
 def generic_scrap(target_url, css_selector):
