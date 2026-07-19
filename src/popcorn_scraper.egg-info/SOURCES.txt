@@ -1,0 +1,9 @@
+pyproject.toml
+src/popcorn_scraper/__init__.py
+src/popcorn_scraper/core.py
+src/popcorn_scraper.egg-info/PKG-INFO
+src/popcorn_scraper.egg-info/SOURCES.txt
+src/popcorn_scraper.egg-info/dependency_links.txt
+src/popcorn_scraper.egg-info/entry_points.txt
+src/popcorn_scraper.egg-info/requires.txt
+src/popcorn_scraper.egg-info/top_level.txt
