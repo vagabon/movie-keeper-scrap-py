@@ -1,0 +1,9 @@
+services:
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: python-scraper-local
+    ports:
+      - "8000:8000"
+    restart: unless-stopped

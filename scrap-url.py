@@ -1,10 +1,13 @@
 import base64
 import re
 import sys
-import json
 import urllib.parse
 from curl_cffi import requests
 from bs4 import BeautifulSoup
+from fastapi import FastAPI, Query, HTTPException
+
+# Initialisation de l'application FastAPI
+app = FastAPI(title="Movie Keeper Scraper API")
 
 def clean_extracted_url(raw_url):
     if not raw_url:
@@ -42,11 +45,9 @@ def generic_scrap(target_url, css_selector):
     try:
         response = requests.get(target_url, headers=headers, impersonate="chrome120")
         if response.status_code != 200:
-            print(json.dumps({"error": f"Status code {response.status_code}"}, ensure_ascii=False))
-            return
+            raise HTTPException(status_code=response.status_code, detail=f"Le site cible a répondu avec un code {response.status_code}")
     except Exception as e:
-        print(json.dumps({"error": str(e)}, ensure_ascii=False))
-        return
+        raise HTTPException(status_code=500, detail=f"Erreur de connexion lors du scraping : {str(e)}")
 
     soup = BeautifulSoup(response.text, 'html.parser')
     results = []
@@ -61,11 +62,22 @@ def generic_scrap(target_url, css_selector):
                 "url": final_url
             })
             
-    print(json.dumps(results, ensure_ascii=False))
+    return results
 
+# --- POINT D'ENTRÉE HTTP (Pour le conteneur Java) ---
+@app.get("/scrap")
+def api_scrap(url: str = Query(..., description="L'URL de recherche à scraper"), 
+              selector: str = Query(..., description="Le sélecteur CSS à cibler")):
+    return generic_scrap(url, selector)
+
+# --- BLOC DE COMPATIBILITÉ CLI (Au cas où tu veux toujours le tester à la main sur le VPS) ---
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print(json.dumps({"error": "Usage: python scrap-url.py <URL> <CSS_SELECTOR>"}, ensure_ascii=False))
-        sys.exit(1)
-        
-    generic_scrap(sys.argv[1], sys.argv[2])
+    if len(sys.argv) >= 3:
+        import json
+        try:
+            print(json.dumps(generic_scrap(sys.argv[1], sys.argv[2]), ensure_ascii=False))
+        except Exception as e:
+            print(json.dumps({"error": str(e)}, ensure_ascii=False))
+            sys.exit(1)
+    else:
+        print("Pour lancer le serveur HTTP, utilise : uvicorn scrap-url:app --reload")
