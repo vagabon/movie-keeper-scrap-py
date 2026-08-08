@@ -5,6 +5,7 @@ import urllib.parse
 from curl_cffi import requests
 from bs4 import BeautifulSoup
 from fastapi import FastAPI, Query, HTTPException
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode, quote
 
 # Initialisation de l'application FastAPI
 app = FastAPI(title="Movie Keeper Scraper API")
@@ -55,6 +56,18 @@ def generic_scrap(target_url, css_selector):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"
     }
+    
+    # Correction : On ré-encode proprement les paramètres de la query de l'URL cible
+    try:
+        scheme, netloc, path, query_string, fragment = urlsplit(target_url)
+        if query_string:
+            # Reconstruit la query string (convertit les espaces en + et l'apostrophe en %27)
+            query_params = parse_qsl(query_string, keep_blank_values=True)
+            encoded_query = urlencode(query_params, quote_via=quote)
+            target_url = urlunsplit((scheme, netloc, path, encoded_query, fragment))
+    except Exception as e:
+        print(f"Erreur de normalisation URL: {e}")
+
     try:
         response = requests.get(target_url, headers=headers, impersonate="chrome120")
         if response.status_code != 200:
