@@ -1,26 +1,21 @@
 import base64
-import logging
 import re
 import sys
 import urllib.parse
-from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode, quote_plus
 from curl_cffi import requests
 from bs4 import BeautifulSoup
 from fastapi import FastAPI, Query, HTTPException
 
-# Configuration du logger pour Docker / Uvicorn
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-logger = logging.getLogger("scraper")
-
+# Initialisation de l'application FastAPI
 app = FastAPI(title="Movie Keeper Scraper API")
 
-def clean_extracted_url(raw_url: str) -> str:
-    """Nettoie et extrait les URL cibles masquées par les redirections des moteurs."""
+def clean_extracted_url(raw_url):
     if not raw_url:
         return ""
     
     if "r.search.yahoo.com" in raw_url:
         try:
+            # Cherche après /RU= ou ?RU= jusqu'au prochain / ou & ou fin de chaîne
             match = re.search(r'(?:[/?&])RU=([^/&]+)', raw_url)
             if match:
                 return urllib.parse.unquote(match.group(1))
@@ -55,52 +50,16 @@ def clean_extracted_url(raw_url: str) -> str:
     
     return raw_url
 
-def sanitize_target_url(raw_url: str) -> str:
-    """
-    Assainit n'importe quelle URL (Yahoo, Bing, Allociné...)
-    en ré-encodant proprement sa query string sans altérer les paramètres.
-    """
-    if not raw_url:
-        return raw_url
-
-    # Traitement des doubles encodages (%2527 -> %27 -> ')
-    while "%25" in raw_url:
-        raw_url = urllib.parse.unquote(raw_url)
-
-    try:
-        scheme, netloc, path, query_string, fragment = urlsplit(raw_url)
-        
-        if query_string:
-            # Découpe et ré-encode RFC-compliant (espaces en +, : en %3A, ' en %27)
-            query_params = parse_qsl(query_string, keep_blank_values=True)
-            clean_query = urlencode(query_params, quote_via=quote_plus)
-            return urlunsplit((scheme, netloc, path, clean_query, fragment))
-    except Exception as e:
-        logger.warning(f"Échec de sanitisation de l'URL ({raw_url}) : {e}")
-
-    return raw_url
-
-def generic_scrap(target_url: str, css_selector: str):
-    # Recomposition générique de l'URL
-    sanitized_url = sanitize_target_url(target_url)
-    
-    # Log de l'URL finale envoyée (visible via 'docker logs')
-    logger.info("--> REQUÊTE SCRAPER ENVOYÉE : %s", sanitized_url)
-    
+def generic_scrap(target_url, css_selector):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"
     }
-    
     try:
-        response = requests.get(sanitized_url, headers=headers, impersonate="chrome120")
+        response = requests.get(target_url, headers=headers, impersonate="chrome120")
         if response.status_code != 200:
-            raise HTTPException(
-                status_code=response.status_code, 
-                detail=f"Le site cible a répondu avec le code {response.status_code}"
-            )
+            raise HTTPException(status_code=response.status_code, detail=f"Le site cible a répondu avec un code {response.status_code}")
     except Exception as e:
-        logger.error("Erreur HTTP lors de l'appel à %s : %s", sanitized_url, str(e))
         raise HTTPException(status_code=500, detail=f"Erreur de connexion lors du scraping : {str(e)}")
 
     soup = BeautifulSoup(response.text, 'html.parser')
@@ -118,15 +77,13 @@ def generic_scrap(target_url: str, css_selector: str):
             
     return results
 
-# --- POINT D'ENTRÉE HTTP (FastAPI) ---
+# --- POINT D'ENTRÉE HTTP (Pour le conteneur Java) ---
 @app.get("/scrap")
-def api_scrap(
-    url: str = Query(..., description="L'URL de recherche à scraper"), 
-    selector: str = Query(..., description="Le sélecteur CSS à cibler")
-):
+def api_scrap(url: str = Query(..., description="L'URL de recherche à scraper"), 
+              selector: str = Query(..., description="Le sélecteur CSS à cibler")):
     return generic_scrap(url, selector)
 
-# --- BLOC DE COMPATIBILITÉ CLI ---
+# --- BLOC DE COMPATIBILITÉ CLI (Au cas où tu veux toujours le tester à la main sur le VPS) ---
 if __name__ == "__main__":
     if len(sys.argv) >= 3:
         import json
