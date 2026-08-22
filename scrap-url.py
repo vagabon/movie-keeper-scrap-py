@@ -15,7 +15,6 @@ def clean_extracted_url(raw_url):
     
     if "r.search.yahoo.com" in raw_url:
         try:
-            # Cherche après /RU= ou ?RU= jusqu'au prochain / ou & ou fin de chaîne
             match = re.search(r'(?:[/?&])RU=([^/&]+)', raw_url)
             if match:
                 return urllib.parse.unquote(match.group(1))
@@ -51,7 +50,7 @@ def clean_extracted_url(raw_url):
     return raw_url
 
 def generic_scrap(target_url: str, css_selector: str):
-    # Fix : Décodage multiple des paramètres URL pour corriger le double URL-encode (%2520 -> %20 -> ' ')
+    # 1. Décodage initial de l'URL reçue
     decoded_url = target_url
     while "%" in decoded_url:
         previous_url = decoded_url
@@ -59,11 +58,25 @@ def generic_scrap(target_url: str, css_selector: str):
         if decoded_url == previous_url:
             break
 
+    # 2. Correction du paramètre 'p' de Yahoo pour empêcher la tronquature par la virgule
+    parsed = urllib.parse.urlparse(decoded_url)
+    if "search.yahoo.com" in parsed.netloc:
+        query_params = urllib.parse.parse_qs(parsed.query)
+        if "p" in query_params:
+            clean_p = urllib.parse.quote_plus(query_params["p"][0])
+            decoded_url = urllib.parse.urlunparse((
+                parsed.scheme,
+                parsed.netloc,
+                parsed.path,
+                parsed.params,
+                f"p={clean_p}",
+                parsed.fragment
+            ))
+
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        # Contourne la redirection automatique vers la page de consentement RGPD (GUCE) de Yahoo
         "Cookie": "A1=d=AQABBGM...; A3=d=AQABBGM...; YES=1"
     }
 
@@ -88,7 +101,6 @@ def generic_scrap(target_url: str, css_selector: str):
             raw_url = link_tag.get('href')
             final_url = clean_extracted_url(raw_url)
             
-            # Nettoyage du texte du titre (gestion des retours à la ligne et espaces superflus)
             title = " ".join(link_tag.get_text().split())
             
             results.append({
@@ -98,7 +110,7 @@ def generic_scrap(target_url: str, css_selector: str):
             
     return results
 
-# --- POINT D'ENTRÉE HTTP (Pour le conteneur Java) ---
+# --- POINT D'ENTRÉE HTTP ---
 @app.get("/scrap")
 def api_scrap(url: str = Query(..., description="L'URL de recherche à scraper"), 
               selector: str = Query(..., description="Le sélecteur CSS à cibler")):
