@@ -15,6 +15,7 @@ def clean_extracted_url(raw_url):
     
     if "r.search.yahoo.com" in raw_url:
         try:
+            # Cherche après /RU= ou ?RU= jusqu'au prochain / ou & ou fin de chaîne
             match = re.search(r'(?:[/?&])RU=([^/&]+)', raw_url)
             if match:
                 return urllib.parse.unquote(match.group(1))
@@ -49,74 +50,62 @@ def clean_extracted_url(raw_url):
     
     return raw_url
 
-def generic_scrap(target_url: str, css_selector: str):
-    # 1. Décodage initial de l'URL reçue
-    decoded_url = target_url
-    while "%" in decoded_url:
-        previous_url = decoded_url
-        decoded_url = urllib.parse.unquote(decoded_url)
-        if decoded_url == previous_url:
-            break
-
-    # 2. Correction du paramètre 'p' de Yahoo pour empêcher la tronquature par la virgule
-    parsed = urllib.parse.urlparse(decoded_url)
-    if "search.yahoo.com" in parsed.netloc:
-        query_params = urllib.parse.parse_qs(parsed.query)
-        if "p" in query_params:
-            clean_p = urllib.parse.quote_plus(query_params["p"][0])
-            decoded_url = urllib.parse.urlunparse((
-                parsed.scheme,
-                parsed.netloc,
-                parsed.path,
-                parsed.params,
-                f"p={clean_p}",
-                parsed.fragment
-            ))
-
+def generic_scrap(target_url, css_selector):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Cookie": "A1=d=AQABBGM...; A3=d=AQABBGM...; YES=1"
     }
-
+    
     try:
-        response = requests.get(
-            decoded_url, 
-            headers=headers, 
-            impersonate="chrome120", 
-            allow_redirects=True
-        )
-        if response.status_code != 200:
-            raise HTTPException(status_code=response.status_code, detail=f"Le site cible a répondu avec un code {response.status_code}")
+        if "duckduckgo.com" in target_url:
+            parsed = urllib.parse.urlparse(target_url)
+            query_params = urllib.parse.parse_qs(parsed.query)
+            q = query_params.get('q', [''])[0]
+            
+            response = requests.post(
+                "https://lite.duckduckgo.com/lite/",
+                data={"q": q},
+                headers=headers,
+                impersonate="chrome120"
+            )
+        else:
+            response = requests.get(target_url, headers=headers, impersonate="chrome120")
+
+        if response.status_code not in [200, 202, 301, 302]:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Le site cible a répondu avec un code {response.status_code}"
+            )
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur de connexion lors du scraping : {str(e)}")
 
     soup = BeautifulSoup(response.text, 'html.parser')
     results = []
     
-    for container in soup.select(css_selector):
-        link_tag = container.select_one('a.result__url, h2 a, a')
+    actual_selector = css_selector
+    if "duckduckgo.com" in target_url and css_selector == ".web-result":
+        actual_selector = "a.result-link"
+
+    for container in soup.select(actual_selector):
+        link_tag = container if container.name == 'a' else container.select_one('a.result__url, h2 a, a')
         if link_tag and link_tag.get('href'):
             raw_url = link_tag.get('href')
             final_url = clean_extracted_url(raw_url)
-            
-            title = " ".join(link_tag.get_text().split())
-            
             results.append({
-                "title": title,
+                "title": link_tag.get_text().strip(),
                 "url": final_url
             })
             
     return results
 
-# --- POINT D'ENTRÉE HTTP ---
+# --- POINT D'ENTRÉE HTTP (Pour le conteneur Java) ---
 @app.get("/scrap")
 def api_scrap(url: str = Query(..., description="L'URL de recherche à scraper"), 
               selector: str = Query(..., description="Le sélecteur CSS à cibler")):
     return generic_scrap(url, selector)
 
-# --- BLOC DE COMPATIBILITÉ CLI ---
+# --- BLOC DE COMPATIBILITÉ CLI (Au cas où tu veux toujours le tester à la main sur le VPS) ---
 if __name__ == "__main__":
     if len(sys.argv) >= 3:
         import json
@@ -126,4 +115,4 @@ if __name__ == "__main__":
             print(json.dumps({"error": str(e)}, ensure_ascii=False))
             sys.exit(1)
     else:
-        print("Pour lancer le serveur HTTP, utilise : uvicorn main:app --reload")
+        print("Pour lancer le serveur HTTP, utilise : uvicorn scrap-url:app --reload")
